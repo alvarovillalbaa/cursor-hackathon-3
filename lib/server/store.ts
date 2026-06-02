@@ -1,9 +1,5 @@
 import "server-only";
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import {
   DEFAULT_CONFIG,
   type CreateGameRequest,
@@ -25,87 +21,20 @@ import {
   analyzePose,
   critiqueFor,
   scoreFromDetection,
-  type PoseDetection,
 } from "@/lib/server/ai-mock";
-
-// ---- Internal (server-only) shapes ----
-// Plain objects/records (not Maps) so the whole DB serializes to JSON cleanly.
-
-interface InternalSubmission {
-  playerId: string;
-  round: number;
-  submittedAt: number;
-  score: number;
-  detection: PoseDetection;
-}
-
-interface InternalRound {
-  round: number;
-  pose: PoseRef;
-  startedAt: number;
-  previewEndsAt: number;
-  revealed: boolean;
-  submissions: Record<string, InternalSubmission>;
-}
-
-interface InternalPlayer {
-  id: string;
-  name: string;
-  isHost: boolean;
-  joinedAt: number;
-}
-
-interface InternalGame {
-  id: string;
-  code: string;
-  hostToken: string;
-  hostPlayerId: string;
-  config: GameConfig;
-  status: "lobby" | "in_round" | "finished";
-  currentRound: number;
-  poseOrder: string[];
-  players: Record<string, InternalPlayer>;
-  rounds: Record<number, InternalRound>;
-  createdAt: number;
-}
+import type {
+  InternalGame,
+  InternalPlayer,
+  InternalRound,
+} from "@/lib/server/game-types";
+import { getPersistence } from "@/lib/server/persistence";
 
 // ---- Persistence ----
-// The mock store is backed by a JSON file in the OS temp dir so games survive
-// dev-server hot reloads and restarts (the #1 cause of spurious "game not
-// found"). Temp dir is used (not the project) to avoid the file watcher. When
-// BACKEND_BASE_URL is set this module is unused and the real backend persists.
-
-const DB_FILE = join(tmpdir(), "poseoff-games.json");
-
-function hydrate(): Map<string, InternalGame> {
-  try {
-    if (existsSync(DB_FILE)) {
-      const raw = readFileSync(DB_FILE, "utf8");
-      const obj = JSON.parse(raw) as Record<string, InternalGame>;
-      return new Map(Object.entries(obj));
-    }
-  } catch (err) {
-    console.error("[poseoff-store] hydrate failed:", err);
-  }
-  return new Map();
-}
-
-const globalForStore = globalThis as unknown as {
-  __yogaGameStore?: Map<string, InternalGame>;
-};
-const games: Map<string, InternalGame> =
-  globalForStore.__yogaGameStore ?? hydrate();
-if (!globalForStore.__yogaGameStore) {
-  globalForStore.__yogaGameStore = games;
-}
-
-function persist(): void {
-  try {
-    writeFileSync(DB_FILE, JSON.stringify(Object.fromEntries(games)));
-  } catch (err) {
-    console.error("[poseoff-store] persist failed:", err);
-  }
-}
+// State is stored one-record-per-game through the persistence layer (Upstash
+// Redis in prod, local disk in dev). There is intentionally NO long-lived
+// in-memory cache: on serverless such a cache is per-instance and goes stale
+// the instant another device hits a different instance. Every public function
+// therefore reads the game, mutates it, and writes it straight back.
 
 // ---- Errors ----
 
@@ -123,13 +52,14 @@ export class GameError extends Error {
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I/L
 const CODE_LENGTH = 5;
 
-function genCode(): string {
+async function genCode(): Promise<string> {
+  const persistence = getPersistence();
   for (let attempt = 0; attempt < 50; attempt++) {
     let code = "";
     for (let i = 0; i < CODE_LENGTH; i++) {
       code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
     }
-    if (!games.has(code)) return code;
+    if (!(await persistence.exists(code))) return code;
   }
   throw new GameError("Could not allocate a game code", 500);
 }
@@ -178,10 +108,14 @@ function poseForRound(game: InternalGame, round: number): PoseRef {
   return pose;
 }
 
-function getGame(code: string): InternalGame {
-  const game = games.get(code.toUpperCase());
+async function getGame(code: string): Promise<InternalGame> {
+  const game = await getPersistence().read(code);
   if (!game) throw new GameError("Game not found", 404);
   return game;
+}
+
+function save(game: InternalGame): Promise<void> {
+  return getPersistence().write(game);
 }
 
 function requireHost(game: InternalGame, hostToken: string | undefined): void {
@@ -320,12 +254,14 @@ function toGameState(game: InternalGame): GameState {
 
 // ---- Public API (consumed by the mock backend) ----
 
-export function createGame(req: CreateGameRequest): CreateGameResponse {
+export async function createGame(
+  req: CreateGameRequest
+): Promise<CreateGameResponse> {
   const hostName = (req.hostName ?? "").trim();
   if (!hostName) throw new GameError("A host name is required", 400);
   if (hostName.length > 24) throw new GameError("Name is too long", 400);
 
-  const code = genCode();
+  const code = await genCode();
   const hostPlayerId = genId();
   const config = normalizeConfig(req.config);
 
@@ -349,8 +285,7 @@ export function createGame(req: CreateGameRequest): CreateGameResponse {
     rounds: {},
     createdAt: Date.now(),
   };
-  games.set(code, game);
-  persist();
+  await save(game);
 
   return {
     code,
@@ -360,8 +295,11 @@ export function createGame(req: CreateGameRequest): CreateGameResponse {
   };
 }
 
-export function joinGame(code: string, req: JoinGameRequest): JoinGameResponse {
-  const game = getGame(code);
+export async function joinGame(
+  code: string,
+  req: JoinGameRequest
+): Promise<JoinGameResponse> {
+  const game = await getGame(code);
   if (game.status !== "lobby") {
     throw new GameError("This game has already started", 409);
   }
@@ -372,33 +310,36 @@ export function joinGame(code: string, req: JoinGameRequest): JoinGameResponse {
 
   const id = genId();
   game.players[id] = { id, name, isHost: false, joinedAt: Date.now() };
-  persist();
+  await save(game);
 
   return { code: game.code, player: { id, name, isHost: false } };
 }
 
-export function getState(code: string): GameState {
-  return toGameState(getGame(code));
+export async function getState(code: string): Promise<GameState> {
+  return toGameState(await getGame(code));
 }
 
-export function startGame(code: string, hostToken?: string): GameState {
-  const game = getGame(code);
+export async function startGame(
+  code: string,
+  hostToken?: string
+): Promise<GameState> {
+  const game = await getGame(code);
   requireHost(game, hostToken);
   if (game.status !== "lobby") {
     throw new GameError("Game already started", 409);
   }
   game.status = "in_round";
   startRound(game, 1);
-  persist();
+  await save(game);
   return toGameState(game);
 }
 
-export function submit(
+export async function submit(
   code: string,
   playerId: string,
   round: number
-): { score: number } {
-  const game = getGame(code);
+): Promise<{ score: number }> {
+  const game = await getGame(code);
   if (game.status !== "in_round") {
     throw new GameError("No active round", 409);
   }
@@ -435,23 +376,29 @@ export function submit(
   if (submissionCount(roundObj) >= playerCount(game)) {
     roundObj.revealed = true;
   }
-  persist();
+  await save(game);
   return { score };
 }
 
-export function reveal(code: string, hostToken?: string): GameState {
-  const game = getGame(code);
+export async function reveal(
+  code: string,
+  hostToken?: string
+): Promise<GameState> {
+  const game = await getGame(code);
   requireHost(game, hostToken);
   if (game.status !== "in_round") {
     throw new GameError("No active round", 409);
   }
   currentRoundObj(game)!.revealed = true;
-  persist();
+  await save(game);
   return toGameState(game);
 }
 
-export function nextRound(code: string, hostToken?: string): GameState {
-  const game = getGame(code);
+export async function nextRound(
+  code: string,
+  hostToken?: string
+): Promise<GameState> {
+  const game = await getGame(code);
   requireHost(game, hostToken);
   if (game.status !== "in_round") {
     throw new GameError("No active round to advance", 409);
@@ -464,12 +411,15 @@ export function nextRound(code: string, hostToken?: string): GameState {
   } else {
     startRound(game, game.currentRound + 1);
   }
-  persist();
+  await save(game);
   return toGameState(game);
 }
 
-export function critique(code: string, round?: number): CritiqueResponse {
-  const game = getGame(code);
+export async function critique(
+  code: string,
+  round?: number
+): Promise<CritiqueResponse> {
+  const game = await getGame(code);
   const targetRound = round ?? game.currentRound;
   const roundObj = game.rounds[targetRound];
   if (!roundObj) throw new GameError("Round not found", 404);

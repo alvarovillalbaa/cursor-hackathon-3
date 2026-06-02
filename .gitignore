@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# runtime game state (file-based store, no DB)
+/tmp/
+
 # production
 /build
 

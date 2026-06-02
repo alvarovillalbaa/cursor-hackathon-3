@@ -39,29 +39,29 @@ export interface GameBackend {
 // In-process mock backend backed by the in-memory store + fake AI.
 const mockBackend: GameBackend = {
   async createGame(req) {
-    return store.createGame(req);
+    return await store.createGame(req);
   },
   async joinGame(code, req) {
-    return store.joinGame(code, req);
+    return await store.joinGame(code, req);
   },
   async getState(code) {
-    return store.getState(code);
+    return await store.getState(code);
   },
   async startGame(code, hostToken) {
-    return store.startGame(code, hostToken);
+    return await store.startGame(code, hostToken);
   },
   async submit(code, input) {
     // The mock derives the score deterministically and ignores the video bytes.
-    return store.submit(code, input.playerId, input.round);
+    return await store.submit(code, input.playerId, input.round);
   },
   async reveal(code, hostToken) {
-    return store.reveal(code, hostToken);
+    return await store.reveal(code, hostToken);
   },
   async nextRound(code, hostToken) {
-    return store.nextRound(code, hostToken);
+    return await store.nextRound(code, hostToken);
   },
   async critique(code, round) {
-    return store.critique(code, round);
+    return await store.critique(code, round);
   },
 };
 
