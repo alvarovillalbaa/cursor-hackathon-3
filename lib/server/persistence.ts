@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { Redis } from "@upstash/redis";
 
 import type { InternalGame } from "@/lib/server/game-types";
+import { GameError } from "@/lib/server/errors";
 
 // ---------------------------------------------------------------------------
 // Persistence seam: one record per game, keyed by its 5-char code. No DB.
@@ -29,7 +30,7 @@ import type { InternalGame } from "@/lib/server/game-types";
 // ---------------------------------------------------------------------------
 
 export interface GamePersistence {
-  readonly kind: "redis" | "disk";
+  readonly kind: "redis" | "disk" | "unconfigured";
   read(code: string): Promise<InternalGame | null>;
   write(game: InternalGame): Promise<void>;
   exists(code: string): Promise<boolean>;
@@ -88,6 +89,26 @@ function createDiskPersistence(): GamePersistence {
   };
 }
 
+const STORAGE_NOT_CONFIGURED =
+  "Game storage isn't configured. Connect an Upstash Redis store in the " +
+  "Vercel dashboard (Storage \u2192 Create Database \u2192 Upstash for Redis), " +
+  "then redeploy. See README \u203a Cross-device storage.";
+
+// Used in production when no Redis is wired. The local-disk driver can't help
+// there (the project dir is read-only and /tmp doesn't sync across instances),
+// so instead of a cryptic EROFS 500 we surface an actionable 503.
+function createUnconfiguredPersistence(): GamePersistence {
+  const fail = async (): Promise<never> => {
+    throw new GameError(STORAGE_NOT_CONFIGURED, 503);
+  };
+  return {
+    kind: "unconfigured",
+    read: fail,
+    write: fail,
+    exists: fail,
+  };
+}
+
 function selectPersistence(): GamePersistence {
   // Accept either the native Upstash names or the Vercel-injected KV names.
   const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
@@ -99,15 +120,12 @@ function selectPersistence(): GamePersistence {
   }
 
   if (process.env.NODE_ENV === "production") {
-    // On Vercel with no store wired, the disk fallback can't share state (and
-    // the project dir is read-only). Fail loud in logs so it's obvious why
-    // games "disappear" between devices.
-    console.warn(
-      "[poseoff-store] No Upstash/KV env vars found in production. Game state " +
-        "will NOT sync across devices. Connect an Upstash Redis store and " +
-        "redeploy. See README > Cross-device storage."
-    );
+    // Fail fast and loud rather than 500 on a read-only filesystem write.
+    console.error(`[poseoff-store] ${STORAGE_NOT_CONFIGURED}`);
+    return createUnconfiguredPersistence();
   }
+
+  // Local dev: zero-setup file store.
   return createDiskPersistence();
 }
 

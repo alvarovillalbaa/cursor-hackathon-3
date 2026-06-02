@@ -28,6 +28,7 @@ import type {
   InternalRound,
 } from "@/lib/server/game-types";
 import { getPersistence } from "@/lib/server/persistence";
+import { GameError } from "@/lib/server/errors";
 
 // ---- Persistence ----
 // State is stored one-record-per-game through the persistence layer (Upstash
@@ -37,15 +38,8 @@ import { getPersistence } from "@/lib/server/persistence";
 // therefore reads the game, mutates it, and writes it straight back.
 
 // ---- Errors ----
-
-export class GameError extends Error {
-  status: number;
-  constructor(message: string, status = 400) {
-    super(message);
-    this.name = "GameError";
-    this.status = status;
-  }
-}
+// Re-exported for back-compat: callers import GameError from this module.
+export { GameError };
 
 // ---- Helpers ----
 
