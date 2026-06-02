@@ -12,7 +12,18 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored agent skill packages are not project source.
+    ".agents/**",
   ]),
+  {
+    rules: {
+      // React Compiler-era rule that also fires on the bundled shadcn
+      // components (carousel, use-mobile) and on idiomatic "read a browser-only
+      // value after mount" / SSR-hydration patterns. Keep it visible as a
+      // warning rather than failing on valid code.
+      "react-hooks/set-state-in-effect": "warn",
+    },
+  },
 ]);
 
 export default eslintConfig;

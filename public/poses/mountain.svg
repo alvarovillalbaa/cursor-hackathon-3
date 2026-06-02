@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Mountain pose">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f5f3ff"/>
+      <stop offset="1" stop-color="#ede9fe"/>
+    </linearGradient>
+  </defs>
+  <rect width="360" height="360" rx="28" fill="url(#bg)"/>
+  <ellipse cx="180" cy="318" rx="120" ry="16" fill="#ddd6fe"/>
+  <g fill="none" stroke="#6d28d9" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M180 96 L180 226"/>
+    <path d="M180 130 L156 220"/>
+    <path d="M180 130 L204 220"/>
+    <path d="M180 226 L160 312"/>
+    <path d="M180 226 L200 312"/>
+  </g>
+  <circle cx="180" cy="72" r="20" fill="#6d28d9"/>
+</svg>

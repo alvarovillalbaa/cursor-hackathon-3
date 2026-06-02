@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Dancer pose">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0fdfa"/>
+      <stop offset="1" stop-color="#ccfbf1"/>
+    </linearGradient>
+  </defs>
+  <rect width="360" height="360" rx="28" fill="url(#bg)"/>
+  <ellipse cx="180" cy="318" rx="120" ry="16" fill="#99f6e4"/>
+  <g fill="none" stroke="#0f766e" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M176 226 L182 312"/>
+    <path d="M176 226 L150 150"/>
+    <path d="M158 168 L92 138"/>
+    <path d="M176 226 L246 206 L236 132"/>
+    <path d="M158 168 L236 138"/>
+  </g>
+  <circle cx="146" cy="128" r="18" fill="#0f766e"/>
+</svg>

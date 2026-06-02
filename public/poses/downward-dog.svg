@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Downward-facing dog pose">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eff6ff"/>
+      <stop offset="1" stop-color="#dbeafe"/>
+    </linearGradient>
+  </defs>
+  <rect width="360" height="360" rx="28" fill="url(#bg)"/>
+  <ellipse cx="180" cy="320" rx="140" ry="14" fill="#bfdbfe"/>
+  <g fill="none" stroke="#1d4ed8" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M96 304 L196 150"/>
+    <path d="M196 150 L300 308"/>
+  </g>
+  <circle cx="116" cy="292" r="18" fill="#1d4ed8"/>
+</svg>

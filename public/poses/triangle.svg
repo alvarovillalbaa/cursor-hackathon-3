@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Triangle pose">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fdf2f8"/>
+      <stop offset="1" stop-color="#fce7f3"/>
+    </linearGradient>
+  </defs>
+  <rect width="360" height="360" rx="28" fill="url(#bg)"/>
+  <ellipse cx="180" cy="320" rx="135" ry="14" fill="#fbcfe8"/>
+  <g fill="none" stroke="#be185d" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M196 236 L96 312"/>
+    <path d="M196 236 L300 312"/>
+    <path d="M196 236 L250 170"/>
+    <path d="M250 196 L286 120"/>
+    <path d="M250 196 L300 300"/>
+  </g>
+  <circle cx="250" cy="150" r="18" fill="#be185d"/>
+</svg>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Tree pose">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ecfdf5"/>
+      <stop offset="1" stop-color="#d1fae5"/>
+    </linearGradient>
+  </defs>
+  <rect width="360" height="360" rx="28" fill="url(#bg)"/>
+  <ellipse cx="180" cy="318" rx="120" ry="16" fill="#a7f3d0"/>
+  <g fill="none" stroke="#047857" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M180 88 L180 220"/>
+    <path d="M180 120 L168 40"/>
+    <path d="M180 120 L192 40"/>
+    <path d="M180 220 L190 312"/>
+    <path d="M180 220 L138 244 L176 276"/>
+  </g>
+  <circle cx="180" cy="66" r="20" fill="#047857"/>
+</svg>

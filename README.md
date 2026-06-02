@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PoseOff
 
-## Getting Started
+A Kahoot-style multiplayer yoga game with computer vision. A host opens a game on a big screen, players join from their phones via a QR code or 5-character code, everyone gets the same yoga pose, records themselves holding it, and an AI pipeline scores each attempt 0-100. A live ranking appears after every round, and an "Critique us" button serves up an AI critique of each player's pose.
 
-First, run the development server:
+## How it works
+
+1. **Create** a game (set the number of rounds and pose-preview time). You become the host and also play.
+2. Players **join** by scanning the QR code or entering the code. They land in the lobby.
+3. The host clicks **Start now**. Each round:
+   - Everyone sees the **pose** for a few seconds (default 10s).
+   - The camera opens and players **record** a short clip, then **submit**.
+   - The backend analyzes each clip (**LibreYOLO** for keypoints -> an evaluator model for a 0-100 score).
+   - A **ranking** is shown. Tap **Critique us** for an AI critique carousel.
+4. The host clicks **Next round** until the game ends (default 5 rounds), then a final ranking is shown.
+
+## Architecture
+
+- **Frontend + BFF**: Next.js App Router. UI under `app/`, game logic components under `components/game/`.
+- **Route handlers** (`app/api/games/...`) are a thin backend-for-frontend. They delegate to `getBackend()` in `lib/server/backend.ts`:
+  - If `BACKEND_BASE_URL` is set, requests are **proxied** to your Django backend (placeholder paths live in `lib/server/backend-remote.ts`).
+  - If it is not set, a built-in **in-memory mock** (`lib/server/store.ts`) plus **fake AI** (`lib/server/ai-mock.ts`) run everything locally so the game is fully playable with zero setup.
+- **State sync** is HTTP polling (`hooks/use-game-state.ts`, ~1.5s) against `GET /api/games/[code]/state`, which performs server-authoritative phase transitions.
+- **Recording** uses `getUserMedia` + `MediaRecorder` (`hooks/use-recorder.ts`).
+- **Poses** come from the backend, falling back to the bundled set in `public/poses/` (catalog in `lib/poses.ts`).
+
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. With no backend configured it runs entirely on the mock.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Playing across devices (phone cameras need HTTPS)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`getUserMedia` is blocked on non-secure origins, so phones cannot record over `http://<your-LAN-IP>:3000`. Use one of:
 
-## Learn More
+- **HTTPS dev server**: `npm run dev:https` (Next.js generates a self-signed cert via mkcert), then set the QR base URL.
+- **Tunnel**: e.g. `cloudflared tunnel --url http://localhost:3000` or `ngrok http 3000`, then point the QR base URL at the public HTTPS URL.
 
-To learn more about Next.js, take a look at the following resources:
+Tell the app which public URL to encode into the QR code with `NEXT_PUBLIC_APP_URL`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Environment variables
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Create `.env.local`:
 
-## Deploy on Vercel
+```bash
+# Optional: when set, the BFF proxies to your real (Django) backend instead of the mock.
+BACKEND_BASE_URL=https://api.your-backend.com
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# Optional: base URL embedded in the join QR code (use your tunnel/HTTPS URL).
+# Defaults to the browser's window.location.origin when unset.
+NEXT_PUBLIC_APP_URL=https://your-tunnel.example.com
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Wiring the real backend
+
+The placeholder REST contract the BFF expects is defined in `lib/server/backend-remote.ts` (paths) and `lib/types.ts` (payloads). Set `BACKEND_BASE_URL`, confirm the paths match your Django routes, and the mock is bypassed. The host token is sent as the `X-Host-Token` header on host-only actions (start, reveal, next).

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Warrior II pose">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff7ed"/>
+      <stop offset="1" stop-color="#ffedd5"/>
+    </linearGradient>
+  </defs>
+  <rect width="360" height="360" rx="28" fill="url(#bg)"/>
+  <ellipse cx="180" cy="318" rx="130" ry="16" fill="#fed7aa"/>
+  <g fill="none" stroke="#c2410c" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M180 114 L180 200"/>
+    <path d="M180 142 L96 142"/>
+    <path d="M180 142 L264 142"/>
+    <path d="M180 200 L104 312"/>
+    <path d="M180 200 L230 256 L242 312"/>
+  </g>
+  <circle cx="180" cy="92" r="20" fill="#c2410c"/>
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360" role="img" aria-label="Cobra pose">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fef2f2"/>
+      <stop offset="1" stop-color="#fee2e2"/>
+    </linearGradient>
+  </defs>
+  <rect width="360" height="360" rx="28" fill="url(#bg)"/>
+  <ellipse cx="180" cy="322" rx="140" ry="14" fill="#fecaca"/>
+  <g fill="none" stroke="#b91c1c" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M70 312 L236 312"/>
+    <path d="M236 312 L292 226"/>
+    <path d="M292 226 L300 312"/>
+  </g>
+  <circle cx="308" cy="210" r="18" fill="#b91c1c"/>
+</svg>
