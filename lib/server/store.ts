@@ -1,5 +1,9 @@
 import "server-only";
 
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import {
   DEFAULT_CONFIG,
   type CreateGameRequest,
@@ -25,6 +29,7 @@ import {
 } from "@/lib/server/ai-mock";
 
 // ---- Internal (server-only) shapes ----
+// Plain objects/records (not Maps) so the whole DB serializes to JSON cleanly.
 
 interface InternalSubmission {
   playerId: string;
@@ -40,7 +45,7 @@ interface InternalRound {
   startedAt: number;
   previewEndsAt: number;
   revealed: boolean;
-  submissions: Map<string, InternalSubmission>;
+  submissions: Record<string, InternalSubmission>;
 }
 
 interface InternalPlayer {
@@ -59,19 +64,47 @@ interface InternalGame {
   status: "lobby" | "in_round" | "finished";
   currentRound: number;
   poseOrder: string[];
-  players: Map<string, InternalPlayer>;
-  rounds: Map<number, InternalRound>;
+  players: Record<string, InternalPlayer>;
+  rounds: Record<number, InternalRound>;
   createdAt: number;
 }
 
-// HMR-safe singleton so the in-memory store survives Fast Refresh in `next dev`.
+// ---- Persistence ----
+// The mock store is backed by a JSON file in the OS temp dir so games survive
+// dev-server hot reloads and restarts (the #1 cause of spurious "game not
+// found"). Temp dir is used (not the project) to avoid the file watcher. When
+// BACKEND_BASE_URL is set this module is unused and the real backend persists.
+
+const DB_FILE = join(tmpdir(), "poseoff-games.json");
+
+function hydrate(): Map<string, InternalGame> {
+  try {
+    if (existsSync(DB_FILE)) {
+      const raw = readFileSync(DB_FILE, "utf8");
+      const obj = JSON.parse(raw) as Record<string, InternalGame>;
+      return new Map(Object.entries(obj));
+    }
+  } catch (err) {
+    console.error("[poseoff-store] hydrate failed:", err);
+  }
+  return new Map();
+}
+
 const globalForStore = globalThis as unknown as {
   __yogaGameStore?: Map<string, InternalGame>;
 };
 const games: Map<string, InternalGame> =
-  globalForStore.__yogaGameStore ?? new Map();
+  globalForStore.__yogaGameStore ?? hydrate();
 if (!globalForStore.__yogaGameStore) {
   globalForStore.__yogaGameStore = games;
+}
+
+function persist(): void {
+  try {
+    writeFileSync(DB_FILE, JSON.stringify(Object.fromEntries(games)));
+  } catch (err) {
+    console.error("[poseoff-store] persist failed:", err);
+  }
 }
 
 // ---- Errors ----
@@ -157,21 +190,33 @@ function requireHost(game: InternalGame, hostToken: string | undefined): void {
   }
 }
 
+function playerList(game: InternalGame): InternalPlayer[] {
+  return Object.values(game.players).sort((a, b) => a.joinedAt - b.joinedAt);
+}
+
+function playerCount(game: InternalGame): number {
+  return Object.keys(game.players).length;
+}
+
 function startRound(game: InternalGame, round: number): void {
   const now = Date.now();
-  game.rounds.set(round, {
+  game.rounds[round] = {
     round,
     pose: poseForRound(game, round),
     startedAt: now,
     previewEndsAt: now + game.config.previewSeconds * 1000,
     revealed: false,
-    submissions: new Map(),
-  });
+    submissions: {},
+  };
   game.currentRound = round;
 }
 
 function currentRoundObj(game: InternalGame): InternalRound | undefined {
-  return game.rounds.get(game.currentRound);
+  return game.rounds[game.currentRound];
+}
+
+function submissionCount(round: InternalRound | undefined): number {
+  return round ? Object.keys(round.submissions).length : 0;
 }
 
 function computePhase(game: InternalGame, now: number): RoundPhase | null {
@@ -180,31 +225,32 @@ function computePhase(game: InternalGame, now: number): RoundPhase | null {
   if (!round) return null;
   if (round.revealed) return "results";
   if (now < round.previewEndsAt) return "preview";
-  // After preview, if everyone has submitted we're momentarily scoring.
-  if (round.submissions.size >= game.players.size) return "scoring";
+  if (submissionCount(round) >= playerCount(game)) return "scoring";
   return "recording";
 }
 
 function publicPlayers(game: InternalGame): PublicPlayer[] {
-  return [...game.players.values()]
-    .sort((a, b) => a.joinedAt - b.joinedAt)
-    .map((p) => ({ id: p.id, name: p.name, isHost: p.isHost }));
+  return playerList(game).map((p) => ({
+    id: p.id,
+    name: p.name,
+    isHost: p.isHost,
+  }));
 }
 
 function buildRanking(game: InternalGame): RankingEntry[] {
   const currentRevealed = currentRoundObj(game)?.revealed ?? false;
   const currentRound = game.currentRound;
 
-  const entries = [...game.players.values()].map((player) => {
+  const entries = playerList(game).map((player) => {
     let total = 0;
-    for (const round of game.rounds.values()) {
+    for (const round of Object.values(game.rounds)) {
       if (!round.revealed) continue;
-      total += round.submissions.get(player.id)?.score ?? 0;
+      total += round.submissions[player.id]?.score ?? 0;
     }
     let roundScore: number | null = null;
     if (currentRevealed) {
       roundScore =
-        game.rounds.get(currentRound)?.submissions.get(player.id)?.score ?? 0;
+        game.rounds[currentRound]?.submissions[player.id]?.score ?? 0;
     }
     return {
       playerId: player.id,
@@ -240,17 +286,15 @@ function buildRanking(game: InternalGame): RankingEntry[] {
 
 function currentSubmissions(game: InternalGame): SubmissionState[] {
   const round = currentRoundObj(game);
-  return [...game.players.values()]
-    .sort((a, b) => a.joinedAt - b.joinedAt)
-    .map((player) => {
-      const sub = round?.submissions.get(player.id);
-      const state: SubmissionState = {
-        playerId: player.id,
-        hasSubmitted: Boolean(sub),
-      };
-      if (round?.revealed && sub) state.score = sub.score;
-      return state;
-    });
+  return playerList(game).map((player) => {
+    const sub = round?.submissions[player.id];
+    const state: SubmissionState = {
+      playerId: player.id,
+      hasSubmitted: Boolean(sub),
+    };
+    if (round?.revealed && sub) state.score = sub.score;
+    return state;
+  });
 }
 
 function toGameState(game: InternalGame): GameState {
@@ -294,16 +338,19 @@ export function createGame(req: CreateGameRequest): CreateGameResponse {
     status: "lobby",
     currentRound: 0,
     poseOrder: shuffledPoseIds(),
-    players: new Map([
-      [
-        hostPlayerId,
-        { id: hostPlayerId, name: hostName, isHost: true, joinedAt: Date.now() },
-      ],
-    ]),
-    rounds: new Map(),
+    players: {
+      [hostPlayerId]: {
+        id: hostPlayerId,
+        name: hostName,
+        isHost: true,
+        joinedAt: Date.now(),
+      },
+    },
+    rounds: {},
     createdAt: Date.now(),
   };
   games.set(code, game);
+  persist();
 
   return {
     code,
@@ -313,10 +360,7 @@ export function createGame(req: CreateGameRequest): CreateGameResponse {
   };
 }
 
-export function joinGame(
-  code: string,
-  req: JoinGameRequest
-): JoinGameResponse {
+export function joinGame(code: string, req: JoinGameRequest): JoinGameResponse {
   const game = getGame(code);
   if (game.status !== "lobby") {
     throw new GameError("This game has already started", 409);
@@ -324,10 +368,11 @@ export function joinGame(
   const name = (req.name ?? "").trim();
   if (!name) throw new GameError("A name is required", 400);
   if (name.length > 24) throw new GameError("Name is too long", 400);
-  if (game.players.size >= 40) throw new GameError("This game is full", 409);
+  if (playerCount(game) >= 40) throw new GameError("This game is full", 409);
 
   const id = genId();
-  game.players.set(id, { id, name, isHost: false, joinedAt: Date.now() });
+  game.players[id] = { id, name, isHost: false, joinedAt: Date.now() };
+  persist();
 
   return { code: game.code, player: { id, name, isHost: false } };
 }
@@ -344,6 +389,7 @@ export function startGame(code: string, hostToken?: string): GameState {
   }
   game.status = "in_round";
   startRound(game, 1);
+  persist();
   return toGameState(game);
 }
 
@@ -359,7 +405,7 @@ export function submit(
   if (round !== game.currentRound) {
     throw new GameError("Submission is for a different round", 409);
   }
-  const player = game.players.get(playerId);
+  const player = game.players[playerId];
   if (!player) throw new GameError("Unknown player", 404);
 
   const roundObj = currentRoundObj(game)!;
@@ -371,24 +417,25 @@ export function submit(
   }
 
   // Idempotent: a re-submit returns the original score.
-  const existing = roundObj.submissions.get(playerId);
+  const existing = roundObj.submissions[playerId];
   if (existing) return { score: existing.score };
 
   const seedKey = `${game.code}:${playerId}:${round}`;
   const detection = analyzePose(seedKey, roundObj.pose);
   const score = scoreFromDetection(detection);
-  roundObj.submissions.set(playerId, {
+  roundObj.submissions[playerId] = {
     playerId,
     round,
     submittedAt: Date.now(),
     score,
     detection,
-  });
+  };
 
   // Auto-reveal once everyone has submitted.
-  if (roundObj.submissions.size >= game.players.size) {
+  if (submissionCount(roundObj) >= playerCount(game)) {
     roundObj.revealed = true;
   }
+  persist();
   return { score };
 }
 
@@ -398,8 +445,8 @@ export function reveal(code: string, hostToken?: string): GameState {
   if (game.status !== "in_round") {
     throw new GameError("No active round", 409);
   }
-  const roundObj = currentRoundObj(game)!;
-  roundObj.revealed = true;
+  currentRoundObj(game)!.revealed = true;
+  persist();
   return toGameState(game);
 }
 
@@ -410,36 +457,34 @@ export function nextRound(code: string, hostToken?: string): GameState {
     throw new GameError("No active round to advance", 409);
   }
   // Make sure the just-finished round counts toward totals.
-  const roundObj = currentRoundObj(game)!;
-  roundObj.revealed = true;
+  currentRoundObj(game)!.revealed = true;
 
   if (game.currentRound >= game.config.totalRounds) {
     game.status = "finished";
   } else {
     startRound(game, game.currentRound + 1);
   }
+  persist();
   return toGameState(game);
 }
 
 export function critique(code: string, round?: number): CritiqueResponse {
   const game = getGame(code);
   const targetRound = round ?? game.currentRound;
-  const roundObj = game.rounds.get(targetRound);
+  const roundObj = game.rounds[targetRound];
   if (!roundObj) throw new GameError("Round not found", 404);
 
-  const quotes: CritiqueQuote[] = [...game.players.values()]
-    .sort((a, b) => a.joinedAt - b.joinedAt)
-    .map((player) => {
-      const sub = roundObj.submissions.get(player.id);
-      const score = sub?.score ?? 0;
-      const seedKey = `${game.code}:${player.id}:${targetRound}`;
-      return {
-        playerId: player.id,
-        name: player.name,
-        score,
-        quote: critiqueFor(seedKey, player.name, roundObj.pose, score),
-      };
-    });
+  const quotes: CritiqueQuote[] = playerList(game).map((player) => {
+    const sub = roundObj.submissions[player.id];
+    const score = sub?.score ?? 0;
+    const seedKey = `${game.code}:${player.id}:${targetRound}`;
+    return {
+      playerId: player.id,
+      name: player.name,
+      score,
+      quote: critiqueFor(seedKey, player.name, roundObj.pose, score),
+    };
+  });
 
   return { round: targetRound, quotes };
 }
